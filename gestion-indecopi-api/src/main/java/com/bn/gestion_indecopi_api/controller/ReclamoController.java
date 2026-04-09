@@ -4,16 +4,17 @@ import com.bn.gestion_indecopi_api.model.ReclamoIndecopi;
 import com.bn.gestion_indecopi_api.service.ReclamoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid; // IMPORTANTE: Para activar las validaciones
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize; // Importante para roles
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/reclamos")
-@Tag(name = "Reclamos Indecopi", description = "Gestión de seguimiento de reclamos administrativos")
+@Tag(name = "Reclamos Indecopi", description = "Gestión de seguimiento de reclamos con auditoría activa")
 @CrossOrigin(origins = "http://localhost:3000")
 public class ReclamoController {
 
@@ -28,20 +29,24 @@ public class ReclamoController {
 
     @PostMapping
     @Operation(summary = "Registrar un nuevo reclamo")
-    // Añadimos @Valid para validar el nroExpediente y campos obligatorios
-    public ResponseEntity<ReclamoIndecopi> guardar(@Valid @RequestBody ReclamoIndecopi reclamo) {
-        return ResponseEntity.ok(service.guardar(reclamo));
+    public ResponseEntity<ReclamoIndecopi> guardar(
+            @Valid @RequestBody ReclamoIndecopi reclamo,
+            @RequestHeader("X-User-Operador") String usuario // <--- Capturamos el operador
+    ) {
+        // Pasamos el objeto y el usuario al service
+        return ResponseEntity.ok(service.guardar(reclamo, usuario));
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "Actualizar datos básicos de un reclamo")
-    // También validamos en la actualización
     public ResponseEntity<ReclamoIndecopi> actualizar(
             @PathVariable Long id, 
-            @Valid @RequestBody ReclamoIndecopi reclamo
+            @Valid @RequestBody ReclamoIndecopi reclamo,
+            @RequestHeader("X-User-Operador") String usuario // <--- Capturamos el operador
     ) {
         try {
-            ReclamoIndecopi actualizado = service.actualizar(id, reclamo);
+            // Pasamos ID, datos nuevos y el usuario responsable
+            ReclamoIndecopi actualizado = service.actualizar(id, reclamo, usuario);
             return ResponseEntity.ok(actualizado);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -50,8 +55,13 @@ public class ReclamoController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Eliminar un reclamo por ID")
-    public ResponseEntity<Void> eliminar(@PathVariable Long id) {
-        service.eliminar(id);
+    // Solo el administrador puede borrar expedientes para evitar pérdida de información
+    @PreAuthorize("hasRole('ADMIN')") 
+    public ResponseEntity<Void> eliminar(
+            @PathVariable Long id,
+            @RequestHeader("X-User-Operador") String usuario // <--- Capturamos el operador
+    ) {
+        service.eliminar(id, usuario);
         return ResponseEntity.noContent().build();
     }
 }

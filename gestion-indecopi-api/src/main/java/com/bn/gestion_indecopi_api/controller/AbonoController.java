@@ -6,13 +6,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/abonos")
-@Tag(name = "Gestion de Abonos", description = "Endpoints para el control de abonos y constancias")
+@Tag(name = "Gestion de Abonos", description = "Endpoints para el control de abonos y constancias con auditoría")
 @CrossOrigin(origins = "http://localhost:3000")
 public class AbonoController {
 
@@ -27,15 +28,23 @@ public class AbonoController {
 
     @PostMapping
     @Operation(summary = "Registrar un nuevo abono")
-    public ResponseEntity<Abono> guardar(@RequestBody Abono abono) {
-        return ResponseEntity.ok(service.guardar(abono));
+    // Recibimos quién opera desde el Header enviado por Next.js
+    public ResponseEntity<Abono> guardar(
+            @RequestBody Abono abono, 
+            @RequestHeader("X-User-Operador") String usuario) {
+        
+        return ResponseEntity.ok(service.guardar(abono, usuario));
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "Actualizar abono y recalcular plazos por intereses")
-    public ResponseEntity<Abono> actualizar(@PathVariable Long id, @RequestBody Abono abono) {
+    public ResponseEntity<Abono> actualizar(
+            @PathVariable Long id, 
+            @RequestBody Abono abono,
+            @RequestHeader("X-User-Operador") String usuario) {
         try {
-            Abono actualizado = service.actualizar(id, abono);
+            // Pasamos el ID, los datos y el usuario responsable
+            Abono actualizado = service.actualizar(id, abono, usuario);
             return ResponseEntity.ok(actualizado);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -44,8 +53,13 @@ public class AbonoController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Eliminar un abono por ID")
-    public ResponseEntity<Void> eliminar(@PathVariable Long id) {
-        service.eliminar(id);
+    // Solo el ADMIN debería poder eliminar registros, para mayor seguridad de auditoría
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> eliminar(
+            @PathVariable Long id,
+            @RequestHeader("X-User-Operador") String usuario) {
+        
+        service.eliminar(id, usuario);
         return ResponseEntity.noContent().build();
     }
 }

@@ -15,57 +15,65 @@ public class AbonoService {
     @Autowired
     private AbonoRepository repository;
 
-    public Abono guardar(Abono abono) {
-        // Al guardar uno nuevo, verificamos si ya nace con intereses
+    @Autowired
+    private AuditoriaService auditoriaService; // 1. INYECTAMOS EL SERVICIO DE AUDITORÍA
+
+    // 2. ACTUALIZAMOS EL MÉTODO PARA RECIBIR EL USUARIO
+    public Abono guardar(Abono abono, String usuario) {
         if (abono.getInteresesLegales() != null && abono.getInteresesLegales() > 0) {
             abono.setFechaUpdateIntereses(LocalDate.now());
             abono.setFechaVencimiento(calcularDiasHabiles(LocalDate.now(), 3));
-            // Si tiene interés, la nota de interés nace como PENDIENTE por defecto
             if (abono.getNotaAbonoInteres() == null) {
                 abono.setNotaAbonoInteres("PENDIENTE");
             }
         } else {
             abono.setFechaVencimiento(calcularDiasHabiles(abono.getFechaIngreso(), 3));
         }
-        return repository.save(abono);
+
+        Abono guardado = repository.save(abono);
+
+        // 3. REGISTRAMOS LA CREACIÓN
+        auditoriaService.registrar(
+            usuario, 
+            "CREACION", 
+            "ABONOS", 
+            guardado.getId(), 
+            "Ingreso de nuevo abono para el cliente: " + guardado.getCliente()
+        );
+
+        return guardado;
     }
 
-    public Abono actualizar(Long id, Abono datosNuevos) {
+    // 4. ACTUALIZAMOS ACTUALIZAR PARA RECIBIR EL USUARIO
+    public Abono actualizar(Long id, Abono datosNuevos, String usuario) {
         return repository.findById(id).map(existente -> {
             
-            // 1. Gestión de Intereses y Plazos
+            String detalle = "Actualización de datos. ";
+            
+            // Lógica de intereses...
             double intPrevios = (existente.getInteresesLegales() != null) ? existente.getInteresesLegales() : 0.0;
             double intNuevos = (datosNuevos.getInteresesLegales() != null) ? datosNuevos.getInteresesLegales() : 0.0;
 
             if (intPrevios <= 0 && intNuevos > 0) {
-                // Si se añaden intereses ahora, reiniciamos el plazo de 3 días desde HOY
                 existente.setFechaUpdateIntereses(LocalDate.now());
                 existente.setFechaVencimiento(calcularDiasHabiles(LocalDate.now(), 3));
-                // Activamos el flujo de nota de interés como PENDIENTE
                 existente.setNotaAbonoInteres("PENDIENTE");
+                detalle += "Se añadieron intereses. ";
             } 
-            else if (intNuevos <= 0) {
-                // Si se quitan los intereses, el plazo vuelve al original
+            else if (intNuevos <= 0 && intPrevios > 0) {
                 existente.setFechaVencimiento(calcularDiasHabiles(existente.getFechaIngreso(), 3));
-                existente.setNotaAbonoInteres(null); // Opcional: limpiar si no hay intereses
+                existente.setNotaAbonoInteres(null);
+                detalle += "Se eliminaron intereses. ";
             }
 
-            // 2. Gestión del Estado "ATENDIDO" (Constancia)
             if (datosNuevos.isConstanciaEntregada() && !existente.isConstanciaEntregada()) {
                 existente.setFechaEntregaConstancia(LocalDate.now());
+                detalle += "Constancia entregada. ";
             } 
-            else if (!datosNuevos.isConstanciaEntregada()) {
-                existente.setFechaEntregaConstancia(null);
-            }
 
-            // ============================================================
-            // 3. ACTUALIZACIÓN DE LOS NUEVOS CAMPOS (LO QUE FALTABA)
-            // ============================================================
+            // Actualización de campos
             existente.setNotaAbonoInteres(datosNuevos.getNotaAbonoInteres());
             existente.setEnviadoLegalInteres(datosNuevos.isEnviadoLegalInteres());
-            // ============================================================
-
-            // 4. Actualización de campos generales
             existente.setSolicitante(datosNuevos.getSolicitante());
             existente.setCliente(datosNuevos.getCliente());
             existente.setImporteReclamado(datosNuevos.getImporteReclamado());
@@ -73,8 +81,36 @@ public class AbonoService {
             existente.setCostas(datosNuevos.getCostas());
             existente.setConstanciaEntregada(datosNuevos.isConstanciaEntregada());
 
-            return repository.save(existente);
+            Abono actualizado = repository.save(existente);
+
+            // 5. REGISTRAMOS LA EDICIÓN
+            auditoriaService.registrar(
+                usuario, 
+                "EDICION", 
+                "ABONOS", 
+                actualizado.getId(), 
+                detalle
+            );
+
+            return actualizado;
         }).orElseThrow(() -> new RuntimeException("Abono no encontrado con ID: " + id));
+    }
+
+    // 6. ACTUALIZAMOS ELIMINAR PARA RECIBIR EL USUARIO
+    public void eliminar(Long id, String usuario) {
+        Abono existente = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("No existe el abono"));
+        
+        repository.deleteById(id);
+
+        // 7. REGISTRAMOS LA ELIMINACIÓN
+        auditoriaService.registrar(
+            usuario, 
+            "ELIMINACION", 
+            "ABONOS", 
+            id, 
+            "Se eliminó el registro del cliente: " + existente.getCliente()
+        );
     }
 
     private LocalDate calcularDiasHabiles(LocalDate inicio, int diasASumar) {
@@ -90,5 +126,4 @@ public class AbonoService {
     }
 
     public List<Abono> listarTodos() { return repository.findAll(); }
-    public void eliminar(Long id) { repository.deleteById(id); }
 }
